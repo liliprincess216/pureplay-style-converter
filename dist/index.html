@@ -7,7 +7,7 @@
     <meta name="description" content="上传人物照片，生成专属纯玩风格图像。" />
     <title>纯玩照片生成器</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2218%22 fill=%22white%22/><path d=%22M15 19h34M15 31h34M15 43h34%22 stroke=%22black%22 stroke-width=%226%22 stroke-linecap=%22round%22/></svg>" />
-    <link rel="stylesheet" href="./styles.css?v=7" />
+    <link rel="stylesheet" href="./styles.css?v=8" />
   </head>
   <body>
     <main id="app">
@@ -19,37 +19,34 @@
       </button>
 
       <section id="loadingScreen" class="state-screen overlay-screen" aria-label="正在生成纯玩照片" hidden>
-        <div class="state-pill dashed-pill" aria-hidden="true">
+        <div class="state-pill loading-pill" aria-hidden="true">
+          <svg class="loading-outline" viewBox="0 0 360 150" preserveAspectRatio="none">
+            <rect x="2" y="2" width="356" height="146" rx="73" pathLength="100" />
+          </svg>
           <strong>纯玩</strong>
           <strong>纯玩</strong>
           <strong>纯玩</strong>
         </div>
       </section>
 
-      <section id="readyScreen" class="state-screen overlay-screen ready-screen" aria-label="生成完毕，左滑查看" hidden>
-        <span class="gesture-arrow top-arrow" aria-hidden="true">←</span>
-        <div class="state-pill solid-pill">
-          <strong>生成完毕</strong>
-          <strong>左滑查看</strong>
-        </div>
-        <span class="gesture-arrow bottom-arrow" aria-hidden="true">←</span>
-      </section>
+      <section id="swipeViewport" class="swipe-viewport" hidden aria-label="原图与纯玩结果，可左右滑动切换" tabindex="0">
+        <canvas id="originalCanvas" class="visual-layer original-layer" width="960" height="1280" aria-label="原始照片"></canvas>
 
-      <section id="swipeViewport" class="swipe-viewport" hidden aria-label="原图与纯玩结果">
-        <div id="pageTrack" class="page-track">
-          <article class="page" aria-label="原始照片">
-            <canvas id="originalCanvas" width="960" height="1280"></canvas>
-          </article>
-          <article class="page" aria-label="纯玩照片结果">
-            <canvas id="resultCanvas" width="960" height="1280"></canvas>
-          </article>
+        <div id="resultReveal" class="result-reveal is-original" aria-hidden="true">
+          <div id="resultAnchor" class="result-anchor">
+            <canvas id="resultBackgroundCanvas" class="result-background" width="960" height="1280"></canvas>
+          </div>
         </div>
-        <canvas id="bandCanvas" class="transition-layer" width="960" height="1280" aria-hidden="true"></canvas>
+
+        <canvas id="foregroundCanvas" class="visual-layer foreground-layer" width="960" height="1280" aria-hidden="true"></canvas>
+        <canvas id="resultCanvas" width="960" height="1280" hidden aria-hidden="true"></canvas>
+
+        <button id="downloadButton" class="download-button" type="button">点击下载</button>
       </section>
 
       <input id="fileInput" type="file" accept="image/*" hidden />
       <div id="toast" class="toast" role="status"></div>
     </main>
-    <script type="module" src="./app.js?v=7"></script>
+    <script type="module" src="./app.js?v=8"></script>
   </body>
 </html>

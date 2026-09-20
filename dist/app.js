@@ -3,18 +3,21 @@ const H = 1280;
 
 const emptyScreen = document.querySelector('#emptyScreen');
 const loadingScreen = document.querySelector('#loadingScreen');
-const readyScreen = document.querySelector('#readyScreen');
 const fileInput = document.querySelector('#fileInput');
 const viewport = document.querySelector('#swipeViewport');
-const pageTrack = document.querySelector('#pageTrack');
 const originalCanvas = document.querySelector('#originalCanvas');
+const resultReveal = document.querySelector('#resultReveal');
+const resultAnchor = document.querySelector('#resultAnchor');
+const resultBackgroundCanvas = document.querySelector('#resultBackgroundCanvas');
+const foregroundCanvas = document.querySelector('#foregroundCanvas');
 const resultCanvas = document.querySelector('#resultCanvas');
-const transitionCanvas = document.querySelector('#bandCanvas');
+const downloadButton = document.querySelector('#downloadButton');
 const toast = document.querySelector('#toast');
 
 const originalCtx = originalCanvas.getContext('2d', { willReadFrequently: true });
+const resultBackgroundCtx = resultBackgroundCanvas.getContext('2d');
+const foregroundCtx = foregroundCanvas.getContext('2d', { willReadFrequently: true });
 const resultCtx = resultCanvas.getContext('2d', { willReadFrequently: true });
-const transitionCtx = transitionCanvas.getContext('2d');
 
 const state = {
   page: 0,
@@ -22,15 +25,15 @@ const state = {
   busy: false,
   originalBitmap: null,
   foregroundBitmap: null,
-  foregroundCanvas: null,
-  backgroundCanvas: null,
-  blendCanvas: null,
+  foregroundCanvas,
+  backgroundCanvas: resultBackgroundCanvas,
   crop: null,
   drag: null,
   dragFrame: 0,
   animation: 0,
   progress: 0,
-  introPending: false,
+  viewportWidth: Math.max(1, window.innerWidth),
+  feather: 96,
   uiMode: 'upload',
 };
 
@@ -55,8 +58,7 @@ function setUi(mode) {
   state.uiMode = mode;
   emptyScreen.hidden = mode !== 'upload';
   loadingScreen.hidden = mode !== 'loading';
-  readyScreen.hidden = mode !== 'ready';
-  viewport.hidden = mode === 'upload';
+  viewport.hidden = mode !== 'image';
 }
 
 function rgbToHsl(r, g, b) {
@@ -319,19 +321,16 @@ function renderPurePlay(foregroundCanvas) {
   const source = originalCtx.getImageData(0, 0, W, H).data;
   const mask = foregroundCanvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, W, H).data;
   const frames = buildCoveringFrames(source, mask);
-  const backgroundCanvas = makeCanvas();
-  const backgroundCtx = backgroundCanvas.getContext('2d');
+  resultBackgroundCtx.clearRect(0, 0, W, H);
+  resultBackgroundCtx.fillStyle = '#d6d2ca';
+  resultBackgroundCtx.fillRect(0, 0, W, H);
+  frames.forEach((frame, index) => paintHorizontalFrame(resultBackgroundCtx, source, mask, frame, index));
 
-  backgroundCtx.fillStyle = '#d6d2ca';
-  backgroundCtx.fillRect(0, 0, W, H);
-  frames.forEach((frame, index) => paintHorizontalFrame(backgroundCtx, source, mask, frame, index));
-
-  state.backgroundCanvas = backgroundCanvas;
+  state.backgroundCanvas = resultBackgroundCanvas;
   state.foregroundCanvas = foregroundCanvas;
-  state.blendCanvas = makeCanvas();
 
   resultCtx.clearRect(0, 0, W, H);
-  resultCtx.drawImage(backgroundCanvas, 0, 0);
+  resultCtx.drawImage(resultBackgroundCanvas, 0, 0);
   resultCtx.drawImage(foregroundCanvas, 0, 0);
 }
 
@@ -339,7 +338,6 @@ async function generate(file) {
   if (state.busy) return;
   state.busy = true;
   state.ready = false;
-  state.introPending = false;
   setUi('loading');
   placePage(0);
 
@@ -357,16 +355,14 @@ async function generate(file) {
     state.crop = centeredCrop(state.originalBitmap, focus);
     drawCrop(originalCtx, state.originalBitmap, state.crop);
 
-    const foregroundCanvas = makeCanvas();
-    drawCrop(foregroundCanvas.getContext('2d'), state.foregroundBitmap, state.crop);
+    drawCrop(foregroundCtx, state.foregroundBitmap, state.crop);
     await new Promise(requestAnimationFrame);
     renderPurePlay(foregroundCanvas);
 
     state.ready = true;
-    state.introPending = true;
-    renderTransition(0);
     placePage(0);
-    setUi('ready');
+    setUi('image');
+    viewport.focus({ preventScroll: true });
   } catch (error) {
     console.error(error);
     showToast('生成失败，请检查网络后重试');
@@ -376,62 +372,52 @@ async function generate(file) {
   }
 }
 
-function renderTransition(progress) {
+function updateViewportMetrics() {
+  const width = Math.max(1, viewport.getBoundingClientRect().width || window.innerWidth);
+  state.viewportWidth = width;
+  state.feather = clamp(width * .23, 76, 112);
+  resultReveal.style.setProperty('--feather', `${state.feather}px`);
+}
+
+function renderProgress(progress) {
   const p = clamp(progress, 0, 1);
-  if (!state.backgroundCanvas || !state.foregroundCanvas) return;
+  state.progress = p;
 
-  transitionCtx.clearRect(0, 0, W, H);
-  transitionCtx.drawImage(originalCanvas, 0, 0, W, H);
+  const revealX = state.viewportWidth * (1 - p) - state.feather;
+  const stretch = 1 + .085 * (1 - p);
 
-  const layer = state.blendCanvas;
-  const layerCtx = layer.getContext('2d');
-  layerCtx.globalCompositeOperation = 'source-over';
-  layerCtx.clearRect(0, 0, W, H);
+  resultReveal.style.transform = `translate3d(${revealX}px,0,0)`;
+  resultAnchor.style.transform = `translate3d(${-revealX}px,0,0)`;
+  resultBackgroundCanvas.style.transform = `scale3d(${stretch},1,1)`;
+  resultReveal.classList.toggle('is-original', p <= .0001);
+  resultReveal.classList.toggle('is-result', p >= .9999);
+}
 
-  const stretch = 1 + .72 * (1 - p);
-  const stretchedWidth = W * stretch;
-  const stretchedX = W - stretchedWidth;
-  layerCtx.drawImage(state.backgroundCanvas, 0, 0, W, H, stretchedX, 0, stretchedWidth, H);
-
-  const boundary = W * (1 - p);
-  const blendWidth = 52 + 108 * (1 - p);
-  layerCtx.globalCompositeOperation = 'destination-in';
-  const gradient = layerCtx.createLinearGradient(boundary - blendWidth, 0, boundary, 0);
-  gradient.addColorStop(0, 'rgba(0,0,0,0)');
-  gradient.addColorStop(1, 'rgba(0,0,0,1)');
-  layerCtx.fillStyle = gradient;
-  layerCtx.fillRect(boundary - blendWidth, 0, blendWidth, H);
-  layerCtx.fillStyle = '#000';
-  layerCtx.fillRect(boundary, 0, W - boundary, H);
-  layerCtx.globalCompositeOperation = 'source-over';
-
-  transitionCtx.drawImage(layer, 0, 0);
-  transitionCtx.drawImage(state.foregroundCanvas, 0, 0);
+function setResultActionsVisible(visible) {
+  viewport.classList.toggle('has-result-actions', visible);
+  downloadButton.tabIndex = visible ? 0 : -1;
 }
 
 function placePage(page) {
   state.page = page ? 1 : 0;
-  state.progress = state.page;
-  pageTrack.style.transform = state.page
-    ? 'translate3d(-50%,0,0)'
-    : 'translate3d(0,0,0)';
-  transitionCanvas.classList.remove('is-visible');
+  renderProgress(state.page);
+  setResultActionsVisible(state.page === 1);
 }
 
 function showTransition(progress) {
-  state.progress = clamp(progress, 0, 1);
-  pageTrack.style.transform = 'translate3d(0,0,0)';
-  transitionCanvas.classList.add('is-visible');
-  renderTransition(state.progress);
+  setResultActionsVisible(false);
+  renderProgress(progress);
 }
 
 function animateTo(from, target, onComplete) {
   cancelAnimationFrame(state.animation);
   state.animation = 0;
   setUi('image');
+  setResultActionsVisible(false);
   const started = performance.now();
   const distance = Math.abs(target - from);
-  const duration = 280 + distance * 220;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const duration = reduceMotion ? 1 : 240 + distance * 220;
   const tick = now => {
     const t = clamp((now - started) / duration, 0, 1);
     const eased = 1 - Math.pow(1 - t, 3);
@@ -450,7 +436,6 @@ function animateTo(from, target, onComplete) {
 function setPage(page, animate = false) {
   const target = page ? 1 : 0;
   if (!state.ready) return;
-  state.introPending = false;
   setUi('image');
   if (!animate) placePage(target);
   else animateTo(state.progress, target);
@@ -460,7 +445,7 @@ const SWIPE_SLOP = 8;
 const AXIS_RATIO = 1.08;
 
 function viewportWidth() {
-  return Math.max(1, viewport.getBoundingClientRect().width || window.innerWidth);
+  return Math.max(1, state.viewportWidth);
 }
 
 function beginGesture(id, x, y, source) {
@@ -481,8 +466,8 @@ function beginGesture(id, x, y, source) {
     originPage: state.page,
     startProgress: state.progress,
     progress: state.progress,
-    introWasVisible: state.uiMode === 'ready',
   };
+  setResultActionsVisible(false);
   return true;
 }
 
@@ -494,12 +479,6 @@ function queueGestureFrame() {
   });
 }
 
-function restoreIntroIfNeeded(drag) {
-  if (drag.introWasVisible && state.introPending && state.page === 0) {
-    setUi('ready');
-  }
-}
-
 function abortGesture(animateBack = false) {
   const drag = state.drag;
   if (!drag) return;
@@ -508,10 +487,9 @@ function abortGesture(animateBack = false) {
   state.dragFrame = 0;
 
   if (animateBack && drag.axis === 'x') {
-    animateTo(drag.progress, drag.originPage, () => restoreIntroIfNeeded(drag));
+    animateTo(drag.progress, drag.originPage);
   } else {
     placePage(drag.originPage);
-    restoreIntroIfNeeded(drag);
   }
 }
 
@@ -533,7 +511,6 @@ function moveGesture(x, y, nativeEvent) {
     if (absX <= absY * AXIS_RATIO) return false;
 
     drag.axis = 'x';
-    if (drag.introWasVisible) setUi('image');
     showTransition(drag.startProgress);
   }
 
@@ -563,13 +540,12 @@ function finishGesture(x, y, nativeEvent, cancelled = false) {
 
   if (drag.axis !== 'x') {
     placePage(drag.originPage);
-    restoreIntroIfNeeded(drag);
     return;
   }
 
   showTransition(drag.progress);
   if (cancelled) {
-    animateTo(drag.progress, drag.originPage, () => restoreIntroIfNeeded(drag));
+    animateTo(drag.progress, drag.originPage);
     return;
   }
 
@@ -580,11 +556,11 @@ function finishGesture(x, y, nativeEvent, cancelled = false) {
     target = drag.originPage;
   }
 
-  if (target === 1) state.introPending = false;
-  animateTo(drag.progress, target, () => restoreIntroIfNeeded(drag));
+  animateTo(drag.progress, target);
 }
 
 function onPointerDown(event) {
+  if (event.target.closest?.('button')) return;
   if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
   if (!beginGesture(event.pointerId, event.clientX, event.clientY, 'pointer')) return;
   try { viewport.setPointerCapture(event.pointerId); } catch {}
@@ -611,6 +587,7 @@ function findTouch(list, id) {
 }
 
 function onTouchStart(event) {
+  if (event.target.closest?.('button')) return;
   if (event.touches.length !== 1 || state.drag) return;
   const touch = event.changedTouches[0];
   beginGesture(touch.identifier, touch.clientX, touch.clientY, 'touch');
@@ -642,24 +619,62 @@ fileInput.addEventListener('change', async () => {
   fileInput.value = '';
 });
 
-viewport.addEventListener('pointerdown', onPointerDown, { passive: true });
-window.addEventListener('pointermove', onPointerMove, { passive: false });
-window.addEventListener('pointerup', onPointerUp, { passive: false });
-window.addEventListener('pointercancel', event => {
-  if (state.drag?.source === 'pointer' && state.drag.id === event.pointerId) abortGesture(true);
-}, { passive: true });
-viewport.addEventListener('lostpointercapture', event => {
-  if (state.drag?.source === 'pointer' && state.drag.id === event.pointerId) abortGesture(true);
+function downloadResult() {
+  if (!state.ready || state.page !== 1) return;
+  resultCanvas.toBlob(blob => {
+    if (!blob) {
+      showToast('下载失败，请重试');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `纯玩照片-${Date.now()}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }, 'image/png');
+}
+
+downloadButton.addEventListener('pointerdown', event => event.stopPropagation());
+downloadButton.addEventListener('touchstart', event => event.stopPropagation(), { passive: true });
+downloadButton.addEventListener('click', downloadResult);
+
+if ('PointerEvent' in window) {
+  viewport.addEventListener('pointerdown', onPointerDown, { passive: true });
+  window.addEventListener('pointermove', onPointerMove, { passive: false });
+  window.addEventListener('pointerup', onPointerUp, { passive: false });
+  window.addEventListener('pointercancel', event => {
+    if (state.drag?.source === 'pointer' && state.drag.id === event.pointerId) abortGesture(true);
+  }, { passive: true });
+  viewport.addEventListener('lostpointercapture', event => {
+    if (state.drag?.source === 'pointer' && state.drag.id === event.pointerId) abortGesture(true);
+  });
+} else {
+  viewport.addEventListener('touchstart', onTouchStart, { passive: true });
+  window.addEventListener('touchmove', onTouchMove, { passive: false });
+  window.addEventListener('touchend', onTouchEnd, { passive: false });
+  window.addEventListener('touchcancel', () => abortGesture(true), { passive: true });
+}
+
+viewport.addEventListener('keydown', event => {
+  if (!state.ready || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+  event.preventDefault();
+  setPage(event.key === 'ArrowLeft' ? 1 : 0, true);
 });
 
-viewport.addEventListener('touchstart', onTouchStart, { passive: true });
-window.addEventListener('touchmove', onTouchMove, { passive: false });
-window.addEventListener('touchend', onTouchEnd, { passive: false });
-window.addEventListener('touchcancel', () => abortGesture(true), { passive: true });
+window.addEventListener('resize', () => {
+  updateViewportMetrics();
+  renderProgress(state.progress);
+});
 window.addEventListener('blur', () => abortGesture(true));
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) abortGesture(true);
 });
+
+updateViewportMetrics();
+placePage(0);
 
 function registerWebMCP() {
   const context = navigator.modelContext;
