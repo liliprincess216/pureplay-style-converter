@@ -1,0 +1,4 @@
+.DS_Store
+.sites-runtime/
+work/
+*.tar.gz
