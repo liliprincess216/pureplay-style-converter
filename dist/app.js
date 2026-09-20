@@ -2,16 +2,14 @@ const W = 960;
 const H = 1280;
 
 const emptyScreen = document.querySelector('#emptyScreen');
+const loadingScreen = document.querySelector('#loadingScreen');
+const readyScreen = document.querySelector('#readyScreen');
 const fileInput = document.querySelector('#fileInput');
 const viewport = document.querySelector('#swipeViewport');
 const pageTrack = document.querySelector('#pageTrack');
 const originalCanvas = document.querySelector('#originalCanvas');
 const resultCanvas = document.querySelector('#resultCanvas');
 const transitionCanvas = document.querySelector('#bandCanvas');
-const statusCapsule = document.querySelector('#statusCapsule');
-const statusText = document.querySelector('#statusText');
-const downloadButton = document.querySelector('#downloadButton');
-const gestureHint = document.querySelector('#gestureHint');
 const toast = document.querySelector('#toast');
 
 const originalCtx = originalCanvas.getContext('2d', { willReadFrequently: true });
@@ -29,7 +27,11 @@ const state = {
   blendCanvas: null,
   crop: null,
   drag: null,
+  dragFrame: 0,
   animation: 0,
+  progress: 0,
+  introPending: false,
+  uiMode: 'upload',
 };
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -47,6 +49,14 @@ function showToast(message) {
   toast.classList.add('show');
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.remove('show'), 2200);
+}
+
+function setUi(mode) {
+  state.uiMode = mode;
+  emptyScreen.hidden = mode !== 'upload';
+  loadingScreen.hidden = mode !== 'loading';
+  readyScreen.hidden = mode !== 'ready';
+  viewport.hidden = mode === 'upload';
 }
 
 function rgbToHsl(r, g, b) {
@@ -112,9 +122,6 @@ async function removeBackground(blob) {
     model: 'isnet_quint8',
     device: 'cpu',
     output: { format: 'image/png', quality: 1, type: 'foreground' },
-    progress: (_key, current, total) => {
-      if (total > 0) statusText.textContent = `识别人像 ${Math.round(current / total * 100)}%`;
-    },
   });
   return decodeImage(foregroundBlob);
 }
@@ -332,10 +339,9 @@ async function generate(file) {
   if (state.busy) return;
   state.busy = true;
   state.ready = false;
-  statusCapsule.className = 'status-capsule is-loading';
-  statusText.textContent = '生成中，请稍等';
-  gestureHint.hidden = true;
-  setPage(0);
+  state.introPending = false;
+  setUi('loading');
+  placePage(0);
 
   try {
     const normalized = await normalizeInput(file);
@@ -353,20 +359,18 @@ async function generate(file) {
 
     const foregroundCanvas = makeCanvas();
     drawCrop(foregroundCanvas.getContext('2d'), state.foregroundBitmap, state.crop);
-    statusText.textContent = '重构背景色块';
     await new Promise(requestAnimationFrame);
     renderPurePlay(foregroundCanvas);
 
     state.ready = true;
-    statusCapsule.className = 'status-capsule is-ready';
-    statusText.textContent = '左滑  生成专属“纯玩”照片';
+    state.introPending = true;
+    renderTransition(0);
     placePage(0);
-    gestureHint.hidden = false;
+    setUi('ready');
   } catch (error) {
     console.error(error);
-    statusCapsule.className = 'status-capsule';
-    statusText.textContent = '生成失败，请重新上传';
     showToast('生成失败，请检查网络后重试');
+    setUi('upload');
   } finally {
     state.busy = false;
   }
@@ -407,121 +411,254 @@ function renderTransition(progress) {
 
 function placePage(page) {
   state.page = page ? 1 : 0;
-  pageTrack.style.transform = `translate3d(${-state.page * innerWidth}px,0,0)`;
+  state.progress = state.page;
+  pageTrack.style.transform = state.page
+    ? 'translate3d(-50%,0,0)'
+    : 'translate3d(0,0,0)';
   transitionCanvas.classList.remove('is-visible');
-  gestureHint.hidden = state.page !== 0 || !state.ready;
 }
 
 function showTransition(progress) {
+  state.progress = clamp(progress, 0, 1);
   pageTrack.style.transform = 'translate3d(0,0,0)';
   transitionCanvas.classList.add('is-visible');
-  renderTransition(progress);
-  gestureHint.hidden = true;
+  renderTransition(state.progress);
 }
 
-function animateTo(from, target) {
+function animateTo(from, target, onComplete) {
   cancelAnimationFrame(state.animation);
+  state.animation = 0;
+  setUi('image');
   const started = performance.now();
-  const duration = 460;
+  const distance = Math.abs(target - from);
+  const duration = 280 + distance * 220;
   const tick = now => {
     const t = clamp((now - started) / duration, 0, 1);
     const eased = 1 - Math.pow(1 - t, 3);
     const progress = from + (target - from) * eased;
     showTransition(progress);
     if (t < 1) state.animation = requestAnimationFrame(tick);
-    else placePage(target);
+    else {
+      state.animation = 0;
+      placePage(target);
+      onComplete?.();
+    }
   };
   state.animation = requestAnimationFrame(tick);
 }
 
 function setPage(page, animate = false) {
   const target = page ? 1 : 0;
-  if (!animate || !state.ready) placePage(target);
-  else animateTo(state.page, target);
+  if (!state.ready) return;
+  state.introPending = false;
+  setUi('image');
+  if (!animate) placePage(target);
+  else animateTo(state.progress, target);
+}
+
+const SWIPE_SLOP = 8;
+const AXIS_RATIO = 1.08;
+
+function viewportWidth() {
+  return Math.max(1, viewport.getBoundingClientRect().width || window.innerWidth);
+}
+
+function beginGesture(id, x, y, source) {
+  if (!state.ready || state.busy || state.drag) return false;
+  cancelAnimationFrame(state.animation);
+  state.animation = 0;
+  const now = performance.now();
+  state.drag = {
+    id,
+    source,
+    axis: 'pending',
+    startX: x,
+    startY: y,
+    startTime: now,
+    lastX: x,
+    lastTime: now,
+    velocity: 0,
+    originPage: state.page,
+    startProgress: state.progress,
+    progress: state.progress,
+    introWasVisible: state.uiMode === 'ready',
+  };
+  return true;
+}
+
+function queueGestureFrame() {
+  if (state.dragFrame) return;
+  state.dragFrame = requestAnimationFrame(() => {
+    state.dragFrame = 0;
+    if (state.drag?.axis === 'x') showTransition(state.drag.progress);
+  });
+}
+
+function restoreIntroIfNeeded(drag) {
+  if (drag.introWasVisible && state.introPending && state.page === 0) {
+    setUi('ready');
+  }
+}
+
+function abortGesture(animateBack = false) {
+  const drag = state.drag;
+  if (!drag) return;
+  state.drag = null;
+  cancelAnimationFrame(state.dragFrame);
+  state.dragFrame = 0;
+
+  if (animateBack && drag.axis === 'x') {
+    animateTo(drag.progress, drag.originPage, () => restoreIntroIfNeeded(drag));
+  } else {
+    placePage(drag.originPage);
+    restoreIntroIfNeeded(drag);
+  }
+}
+
+function moveGesture(x, y, nativeEvent) {
+  const drag = state.drag;
+  if (!drag) return false;
+
+  const dx = x - drag.startX;
+  const dy = y - drag.startY;
+  const absX = Math.abs(dx);
+  const absY = Math.abs(dy);
+
+  if (drag.axis === 'pending') {
+    if (Math.max(absX, absY) < SWIPE_SLOP) return false;
+    if (absY > absX * AXIS_RATIO) {
+      abortGesture(false);
+      return false;
+    }
+    if (absX <= absY * AXIS_RATIO) return false;
+
+    drag.axis = 'x';
+    if (drag.introWasVisible) setUi('image');
+    showTransition(drag.startProgress);
+  }
+
+  if (drag.axis !== 'x') return false;
+  if (nativeEvent?.cancelable) nativeEvent.preventDefault();
+
+  const now = performance.now();
+  const dt = Math.max(1, now - drag.lastTime);
+  const instantaneousVelocity = -(x - drag.lastX) / dt;
+  drag.velocity = drag.velocity * .68 + instantaneousVelocity * .32;
+  drag.lastX = x;
+  drag.lastTime = now;
+  drag.progress = clamp(drag.startProgress - dx / viewportWidth(), 0, 1);
+  queueGestureFrame();
+  return true;
+}
+
+function finishGesture(x, y, nativeEvent, cancelled = false) {
+  if (!state.drag) return;
+  if (!cancelled) moveGesture(x, y, nativeEvent);
+  const drag = state.drag;
+  if (!drag) return;
+
+  state.drag = null;
+  cancelAnimationFrame(state.dragFrame);
+  state.dragFrame = 0;
+
+  if (drag.axis !== 'x') {
+    placePage(drag.originPage);
+    restoreIntroIfNeeded(drag);
+    return;
+  }
+
+  showTransition(drag.progress);
+  if (cancelled) {
+    animateTo(drag.progress, drag.originPage, () => restoreIntroIfNeeded(drag));
+    return;
+  }
+
+  let target = drag.progress >= .5 ? 1 : 0;
+  if (Math.abs(drag.velocity) > .35) {
+    target = drag.velocity > 0 ? 1 : 0;
+  } else if (Math.abs(drag.progress - drag.startProgress) < .08) {
+    target = drag.originPage;
+  }
+
+  if (target === 1) state.introPending = false;
+  animateTo(drag.progress, target, () => restoreIntroIfNeeded(drag));
 }
 
 function onPointerDown(event) {
-  if (event.target.closest('button') || !state.ready) return;
-  cancelAnimationFrame(state.animation);
-  const startProgress = state.page;
-  state.drag = {
-    id: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    startTime: performance.now(),
-    startProgress,
-    progress: startProgress,
-  };
+  if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+  if (!beginGesture(event.pointerId, event.clientX, event.clientY, 'pointer')) return;
   try { viewport.setPointerCapture(event.pointerId); } catch {}
-  showTransition(startProgress);
 }
 
 function onPointerMove(event) {
-  if (!state.drag || state.drag.id !== event.pointerId) return;
-  const dx = event.clientX - state.drag.startX;
-  const dy = event.clientY - state.drag.startY;
-  if (Math.abs(dy) > Math.abs(dx) * 1.35) return;
-  const delta = -dx / Math.max(1, innerWidth);
-  const progress = clamp(state.drag.startProgress + delta, 0, 1);
-  state.drag.progress = progress;
-  showTransition(progress);
+  const drag = state.drag;
+  if (!drag || drag.source !== 'pointer' || drag.id !== event.pointerId) return;
+  moveGesture(event.clientX, event.clientY, event);
 }
 
 function onPointerUp(event) {
-  if (!state.drag || state.drag.id !== event.pointerId) {
-    if (!state.ready && event.type === 'pointerup') showToast('图片还在生成，请稍等');
-    return;
-  }
-  const elapsed = Math.max(1, performance.now() - state.drag.startTime);
-  const dx = event.clientX - state.drag.startX;
-  const velocity = -dx / elapsed;
-  let target = state.drag.progress >= .5 ? 1 : 0;
-  if (Math.abs(velocity) > .45) target = velocity > 0 ? 1 : 0;
-  const from = state.drag.progress;
-  state.drag = null;
+  const drag = state.drag;
+  if (!drag || drag.source !== 'pointer' || drag.id !== event.pointerId) return;
+  finishGesture(event.clientX, event.clientY, event);
   try { viewport.releasePointerCapture(event.pointerId); } catch {}
-  animateTo(from, target);
 }
 
-function onPointerCancel(event) {
-  if (!state.drag || state.drag.id !== event.pointerId) return;
-  const { progress, startProgress } = state.drag;
-  state.drag = null;
-  animateTo(progress, startProgress);
+function findTouch(list, id) {
+  for (let index = 0; index < list.length; index++) {
+    if (list[index].identifier === id) return list[index];
+  }
+  return null;
+}
+
+function onTouchStart(event) {
+  if (event.touches.length !== 1 || state.drag) return;
+  const touch = event.changedTouches[0];
+  beginGesture(touch.identifier, touch.clientX, touch.clientY, 'touch');
+}
+
+function onTouchMove(event) {
+  const drag = state.drag;
+  if (!drag || drag.source !== 'touch') return;
+  if (event.touches.length > 1) {
+    abortGesture(true);
+    return;
+  }
+  const touch = findTouch(event.touches, drag.id);
+  if (touch) moveGesture(touch.clientX, touch.clientY, event);
+}
+
+function onTouchEnd(event) {
+  const drag = state.drag;
+  if (!drag || drag.source !== 'touch') return;
+  const touch = findTouch(event.changedTouches, drag.id);
+  if (touch) finishGesture(touch.clientX, touch.clientY, event);
 }
 
 emptyScreen.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
-  emptyScreen.hidden = true;
-  viewport.hidden = false;
   await generate(file);
   fileInput.value = '';
 });
 
-statusCapsule.addEventListener('click', () => {
-  if (state.ready) setPage(1, true);
-  else if (!state.busy) fileInput.click();
+viewport.addEventListener('pointerdown', onPointerDown, { passive: true });
+window.addEventListener('pointermove', onPointerMove, { passive: false });
+window.addEventListener('pointerup', onPointerUp, { passive: false });
+window.addEventListener('pointercancel', event => {
+  if (state.drag?.source === 'pointer' && state.drag.id === event.pointerId) abortGesture(true);
+}, { passive: true });
+viewport.addEventListener('lostpointercapture', event => {
+  if (state.drag?.source === 'pointer' && state.drag.id === event.pointerId) abortGesture(true);
 });
 
-viewport.addEventListener('pointerdown', onPointerDown);
-viewport.addEventListener('pointermove', onPointerMove);
-viewport.addEventListener('pointerup', onPointerUp);
-viewport.addEventListener('pointercancel', onPointerCancel);
-window.addEventListener('resize', () => placePage(state.page));
-
-downloadButton.addEventListener('click', () => {
-  if (!state.ready) return showToast('图片还没有生成完成');
-  resultCanvas.toBlob(blob => {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `纯玩照片-${Date.now()}.png`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showToast('已下载 960 × 1280 图片');
-  }, 'image/png');
+viewport.addEventListener('touchstart', onTouchStart, { passive: true });
+window.addEventListener('touchmove', onTouchMove, { passive: false });
+window.addEventListener('touchend', onTouchEnd, { passive: false });
+window.addEventListener('touchcancel', () => abortGesture(true), { passive: true });
+window.addEventListener('blur', () => abortGesture(true));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) abortGesture(true);
 });
 
 function registerWebMCP() {
