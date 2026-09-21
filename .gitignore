@@ -2,3 +2,5 @@
 .sites-runtime/
 work/
 *.tar.gz
+/outputs/*.zip
+/outputs/*.bundle
