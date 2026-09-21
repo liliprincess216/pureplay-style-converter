@@ -2,63 +2,10 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#ffffff" />
-    <meta name="description" content="上传人物照片，生成专属纯玩风格图像。" />
-    <title>纯玩照片生成器</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2218%22 fill=%22white%22/><path d=%22M15 19h34M15 31h34M15 43h34%22 stroke=%22black%22 stroke-width=%226%22 stroke-linecap=%22round%22/></svg>" />
-    <link rel="stylesheet" href="./styles.css?v=25" />
-    <link rel="preload" as="image" href="./assets/pureplay-loading.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="refresh" content="0;url=./h5.html?v=27" />
+    <title>城市纯玩企划 · 纯玩风格转换器</title>
+    <script>location.replace('./h5.html?v=27' + location.hash);</script>
   </head>
-  <body>
-    <main id="app">
-      <button id="emptyScreen" class="state-screen upload-screen" type="button" aria-label="上传含人物的照片">
-        <span class="state-pill solid-pill">
-          <strong>上传含人物的照片</strong>
-          <strong>生成专属纯玩照片</strong>
-        </span>
-      </button>
-
-      <section id="loadingScreen" class="state-screen overlay-screen" aria-label="正在生成纯玩照片" hidden>
-        <div class="loading-pill" aria-hidden="true">
-          <span class="loading-word"></span>
-          <span class="loading-word"></span>
-          <span class="loading-word"></span>
-        </div>
-      </section>
-
-      <section id="swipeViewport" class="swipe-viewport" hidden aria-label="右滑查看纯玩结果，左滑返回原图" tabindex="0">
-        <canvas id="originalCanvas" class="visual-layer original-layer" width="960" height="1280" aria-label="原始照片"></canvas>
-
-        <div id="resultReveal" class="result-reveal is-original" aria-hidden="true">
-          <div id="resultAnchor" class="result-anchor">
-            <canvas id="resultBackgroundCanvas" class="result-background" width="960" height="1280"></canvas>
-          </div>
-        </div>
-
-        <canvas id="foregroundCanvas" class="visual-layer foreground-layer" width="960" height="1280" aria-hidden="true"></canvas>
-        <canvas id="resultCanvas" width="960" height="1280" hidden aria-hidden="true"></canvas>
-
-        <div id="readyOverlay" class="ready-overlay" hidden aria-live="polite">
-          <svg class="ready-arrow ready-arrow-top" viewBox="0 0 88 28" aria-hidden="true">
-            <path d="M2 14H82M70 3l12 11-12 11" />
-          </svg>
-          <div class="ready-message">
-            <strong>生成完毕</strong>
-            <strong>右滑查看</strong>
-          </div>
-          <svg class="ready-arrow ready-arrow-bottom" viewBox="0 0 88 28" aria-hidden="true">
-            <path d="M2 14H82M70 3l12 11-12 11" />
-          </svg>
-        </div>
-
-        <button id="reuploadButton" class="endpoint-button reupload-button" type="button">重新上传</button>
-        <button id="downloadButton" class="endpoint-button download-button" type="button">点击下载</button>
-      </section>
-
-      <input id="fileInput" type="file" accept="image/*" hidden />
-      <div id="toast" class="toast" role="status"></div>
-    </main>
-    <script type="module" src="./app.js?v=24"></script>
-  </body>
+  <body><a href="./h5.html?v=27">打开城市纯玩企划</a></body>
 </html>

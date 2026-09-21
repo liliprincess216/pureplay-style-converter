@@ -1355,7 +1355,7 @@ function renderProgress(progress) {
   const p = clamp(progress, 0, 1);
   state.progress = p;
 
-  const revealX = -state.viewportWidth * (1 - p);
+  const revealX = state.viewportWidth * (1 - p) - state.feather;
   const stretch = 1 + .085 * (1 - p);
 
   resultReveal.style.transform = `translate3d(${revealX}px,0,0)`;
@@ -1514,7 +1514,7 @@ function moveGesture(x, y, nativeEvent) {
   drag.velocity = drag.velocity * .68 + instantaneousVelocity * .32;
   drag.lastX = x;
   drag.lastTime = now;
-  drag.progress = clamp(drag.startProgress + dx / viewportWidth(), 0, 1);
+  drag.progress = clamp(drag.startProgress - dx / viewportWidth(), 0, 1);
   queueGestureFrame();
   return true;
 }
@@ -1542,7 +1542,7 @@ function finishGesture(x, y, nativeEvent, cancelled = false) {
 
   let target = drag.progress >= .5 ? 1 : 0;
   if (Math.abs(drag.velocity) > .35) {
-    target = drag.velocity > 0 ? 1 : 0;
+    target = drag.velocity < 0 ? 1 : 0;
   } else if (Math.abs(drag.progress - drag.startProgress) < .08) {
     target = drag.originPage;
   }
@@ -1655,7 +1655,7 @@ if ('PointerEvent' in window) {
 viewport.addEventListener('keydown', event => {
   if (!state.ready || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
   event.preventDefault();
-  setPage(event.key === 'ArrowRight' ? 1 : 0, true);
+  setPage(event.key === 'ArrowLeft' ? 1 : 0, true);
 });
 
 window.addEventListener('resize', () => {

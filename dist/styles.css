@@ -163,15 +163,15 @@ button { font: inherit; }
   will-change: transform;
   -webkit-mask-image:
     linear-gradient(#000, #000),
-    linear-gradient(to right, #000 0%, rgba(0,0,0,.78) 24%, rgba(0,0,0,.34) 56%, rgba(0,0,0,.08) 82%, transparent 100%);
+    linear-gradient(to left, #000 0%, rgba(0,0,0,.78) 24%, rgba(0,0,0,.34) 56%, rgba(0,0,0,.08) 82%, transparent 100%);
   -webkit-mask-size: calc(100% - var(--feather)) 100%, var(--feather) 100%;
-  -webkit-mask-position: left top, right top;
+  -webkit-mask-position: right top, left top;
   -webkit-mask-repeat: no-repeat;
   mask-image:
     linear-gradient(#000, #000),
-    linear-gradient(to right, #000 0%, rgba(0,0,0,.78) 24%, rgba(0,0,0,.34) 56%, rgba(0,0,0,.08) 82%, transparent 100%);
+    linear-gradient(to left, #000 0%, rgba(0,0,0,.78) 24%, rgba(0,0,0,.34) 56%, rgba(0,0,0,.08) 82%, transparent 100%);
   mask-size: calc(100% - var(--feather)) 100%, var(--feather) 100%;
-  mask-position: left top, right top;
+  mask-position: right top, left top;
   mask-repeat: no-repeat;
 }
 
@@ -193,7 +193,7 @@ button { font: inherit; }
 }
 
 .result-background {
-  transform-origin: left center;
+  transform-origin: right center;
   will-change: transform;
 }
 
@@ -261,8 +261,8 @@ button { font: inherit; }
 }
 
 @keyframes ready-nudge {
-  0%, 100% { transform: translateX(-8px); }
-  50% { transform: translateX(8px); }
+  0%, 100% { transform: translateX(8px); }
+  50% { transform: translateX(-8px); }
 }
 
 .endpoint-button {
